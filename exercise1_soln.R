@@ -1,4 +1,3 @@
-library(readxl)
 library(lubridate)
 
 setwd('/Users/fredlu/repos/SISMID23')
