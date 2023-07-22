@@ -19,8 +19,10 @@ signals = ['new_cases', 'upToDate', 'cdc_ili',
 fig, ax = plt.subplots(len(signals), 1)
 fig.set_size_inches(10, 10)
 for i, feat in enumerate(signals):
-    ax[i].plot(df['date'], df[feat], label=feat)
+    ax[i].plot(df['date'], df[feat], label=feat, c=f'C{i}')
     ax[i].legend(frameon=False)
+    
+ax[0].set_ylim([0, 3000])
 plt.tight_layout()
 plt.show()
 
@@ -32,11 +34,11 @@ for signal in signals:
     # array to store alpha output, one entry for each day
     alpha_arr = np.zeros(len(df))
     xarr = df[signal].values
-    for i in range(11, len(df)):
+    for i in range(10, len(df)):
         # predictor is first 10 days
-        before = xarr[i-11:i-1]
+        before = xarr[i-10:i]
         # target is days 2-11
-        after = xarr[i-10:i]
+        after = xarr[i-9:i+1]
         lr = LinearRegression(fit_intercept=False)
         lr.fit(before.reshape(-1, 1), after)
         
@@ -58,6 +60,8 @@ ax[2].plot(
 
 ax[1].axhline(1, c='k')
 ax[0].set_ylabel('new COVID-19 cases')
+ax[0].set_ylim([0, 3000])
+ax[1].set_ylim([0.5, 1.1])
 ax[1].set_ylabel('alpha')
 ax[2].set_ylabel('alpha > 1')
 
@@ -94,6 +98,7 @@ for signal in signals:
     outbreaks[signal] = out_arr
 
 
+
 # (e)
 outbreak_locs = {}
 # for each signal, record the time indices where outbreaks start
@@ -111,13 +116,14 @@ ax[2].plot(
 
 ax[1].axhline(1, c='k')
 ax[0].set_ylabel('new COVID-19 cases')
+ax[0].set_ylim([0, 3000])
+ax[1].set_ylim([0.5, 1.1])
 ax[1].set_ylabel('alpha')
 ax[2].set_ylabel('alpha > 1')
 
 # add markers for outbreak locations
 for t in outbreak_locs['new_cases']:
     ax[0].plot(t, df['new_cases'][t], c='r', marker='x')
-
 
 
 # (f)
@@ -131,5 +137,6 @@ for i, feat in enumerate(signals):
         ax[i].plot(t, df[feat][t], c='r', marker='x')
 
     ax[i].legend(frameon=False)
+ax[0].set_ylim([0, 1500])
 plt.tight_layout()
 plt.show()

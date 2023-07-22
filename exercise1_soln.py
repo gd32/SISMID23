@@ -26,6 +26,9 @@ print(b, m)
 
 plt.clf()
 plt.scatter(df_train['dengue'], df_train['Dengue CDC'])
+xg = np.linspace(0, 30, 100)
+yg = xg * m + b
+plt.plot(xg, yg, c='r')
 
 plt.clf()
 pred_insample = df_train['dengue'] * m + b
