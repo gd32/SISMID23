@@ -1,0 +1,223 @@
+---
+title: "SISMID Exercise 2"
+author: "George Dewey"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(lubridate)
+library(firatheme)
+library(kableExtra)
+```
+
+## Exercise 2
+
+#### Keep the old static model
+
+```{r}
+data_e1 = read_csv('/Users/gdewey/Documents/Projects/SISMID23/data/MX_Dengue_trends.csv', 
+                   show_col_types = F)
+
+data_e1 = data_e1 %>% rename(dengue_true = `Dengue CDC`,
+                             date = Date,
+                             sintomas_de_dengue = `sintomas de dengue`,
+                             dengue_sintomas = `dengue sintomas`)
+
+data_e1_lm = data_e1 %>% slice(1:36)
+
+m1 = lm(dengue_true ~ dengue, data = data_e1_lm)
+coefs_lm = coef(m1)
+
+data_e1_pred = data_e1 %>% slice(37:nrow(data_e1))
+data_e1_pred$predicted_vals = predict(m1, data.frame(dengue = data_e1_pred$dengue))
+```
+
+#### a) In a sliding window approach, the original training period (Jan. 2004 - Dec. 2006) is used to fit a least squares model and predict the next time step (January 2007). Then for the next prediction, the training period shifts by one month (Feb. 2004 - Jan. 2007), and the model is retrained. This process is continued for each prediction from 2007-2011. Implement this approach and store the predictions in a vector.
+
+The model should take 36 months of input data (i.e., Jan 04 to Dec 06) to predict the next month's case count. Each iteration of the loop should increment the window forward by 1.
+
+```{r}
+sliding_preds = numeric(nrow(data_e1_pred))
+
+start_month = 37
+
+for(month_to_predict in start_month:nrow(data_e1)){
+  
+  input_start = month_to_predict - 36
+  input_end = month_to_predict - 1
+  data_for_prediction = data_e1 %>% slice(input_start:input_end)
+  
+  # The model using data_for_prediction to estimate coefficients
+  pred_model = lm(dengue_true ~ dengue, data = data_for_prediction)
+  
+  # Use pred_model to predict the number of cases based on dengue cases
+  # in start_month
+  monthly_pred = predict(pred_model, data_e1[month_to_predict,])
+  
+  # Save the predicted values to the sliding_preds vector
+  sliding_preds[month_to_predict - 36] = monthly_pred
+}
+```
+
+#### b) Plot the number of cases predicted by this method and compare with the predictions from the static model.
+
+```{r}
+data_e1_pred$sliding_preds = sliding_preds
+
+data_e1_pred %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = dengue_true, color = 'True dengue cases')) +
+  geom_line(aes(y = predicted_vals, color = 'Predicted dengue cases \n(static linear regression)')) +
+  geom_line(aes(y = sliding_preds, color = 'Predicted dengue cases \n(dynamic linear regression)')) + 
+  xlab('') +
+  ylab('Dengue cases') +
+  scale_color_fira(name = '') +
+  scale_x_date(date_labels = '%d %b %Y', expand = c(0, 0)) +
+  theme_fira() +
+  theme(legend.position = 'bottom')
+```
+
+#### c) Compute the mean square error (MSE) of both methods compared with the ground truth. Which method is better?
+
+```{r}
+actual = data_e1_pred$dengue_true
+
+Metrics::rmse(actual, data_e1_pred$predicted_vals)
+Metrics::rmse(actual, data_e1_pred$sliding_preds)
+```
+
+The dynamic method reflects an improvement over the static method when only the `dengue` term is used as a predictor.
+
+#### d) Adding covariates. Instead of using just `dengue` as the predictor variable, add the remaining Google search terms as predictors in the dynamic model. How does the MSE change?
+
+```{r}
+sliding_preds_w_covariates = numeric(nrow(data_e1_pred))
+
+start_month = 37
+
+for(month_to_predict in start_month:nrow(data_e1)){
+  
+  input_start = month_to_predict - 36
+  input_end = month_to_predict - 1
+  data_for_prediction = data_e1 %>% slice(input_start:input_end)
+  
+  # The model using data_for_prediction to estimate coefficients
+  pred_model = lm(dengue_true ~ dengue + sintomas_de_dengue + 
+                    dengue_sintomas + mosquito , data = data_for_prediction)
+
+  # Use pred_model to predict the number of cases based on dengue cases
+  # in start_month
+  monthly_pred = predict(pred_model, data_e1[month_to_predict,])
+  
+  # Save the predicted values to the sliding_preds vector
+  sliding_preds_w_covariates[month_to_predict - 36] = monthly_pred
+}
+
+data_e1_pred$sliding_preds_covars = sliding_preds_w_covariates
+
+data_e1_pred %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = dengue_true, color = 'True dengue cases')) +
+  # geom_line(aes(y = predicted_vals, color = 'Predicted dengue cases \n(static linear regression)')) +
+  # geom_line(aes(y = sliding_preds, color = 'Predicted dengue cases \n(sliding linear regression)')) + 
+  geom_line(aes(y = sliding_preds_covars, 
+                color = 'Predicted dengue cases \n(dynamic model \nwith four search\nterms)')) +
+  xlab('') +
+  ylab('Dengue cases') +
+  scale_color_fira(name = '') +
+  scale_x_date(date_labels = '%d %b %Y', expand = c(0, 0)) +
+  theme_fira() +
+  theme(legend.position = 'bottom')
+```
+
+```{r}
+Metrics::rmse(actual, data_e1_pred$sliding_preds_covars)
+```
+
+Adding the extra predictors reduces the RMSE below the RMSE of the static model as well as the dynamic model with one predictor (as expected).
+
+#### e) Adding autoregression. You can make use of the fact that the model changes over time to improve predictions by adding past observations of the ground truth as additional features. For example, for the Jan. 2007 prediction, you can add the observed dengue case counts from Nov. 2006 and Dec. 2006 as features (this is a Google+AR2 model). Implement a dynamic model with autoregression and compare the MSE of this model with the others.
+
+```{r}
+# add AR terms to the data
+data_e1 = data_e1 %>% mutate(ar1 = lag(dengue_true, 1),
+                             ar2 = lag(dengue_true, 2),
+                             ar3 = lag(dengue_true, 3))
+
+# then include these terms in the sliding model
+sliding_preds_w_ar = numeric(nrow(data_e1_pred))
+
+start_month = 37
+
+for(month_to_predict in start_month:nrow(data_e1)){
+  
+  input_start = month_to_predict - 36
+  input_end = month_to_predict - 1
+  data_for_prediction = data_e1 %>% slice(input_start:input_end)
+  
+  # Model to estimate coefficients
+
+  # Account for the lack of lag information in the early stages
+  if(month_to_predict == 37){
+    pred_model = lm(dengue_true ~ dengue + sintomas_de_dengue + 
+                      dengue_sintomas + mosquito + ar1, 
+                    data = data_for_prediction)
+  }
+  
+   if(month_to_predict == 38){
+    pred_model = lm(dengue_true ~ dengue + sintomas_de_dengue + 
+                      dengue_sintomas + mosquito + ar1 + ar2, 
+                    data = data_for_prediction)
+   }
+  
+    pred_model = lm(dengue_true ~ dengue + sintomas_de_dengue + 
+                      dengue_sintomas + mosquito + ar1 + ar2 + ar3, 
+                    data = data_for_prediction)
+    summary(pred_model)
+
+  # Use pred_model to predict the number of cases based on dengue cases
+  # in start_month
+  monthly_pred = predict(pred_model, data_e1[month_to_predict,])
+  monthly_pred
+  
+  # Save the predicted values to the sliding_preds vector
+  sliding_preds_w_ar[month_to_predict - 36] = monthly_pred
+}
+
+data_e1_pred$sliding_preds_covars_ar = sliding_preds_w_ar
+
+data_e1_pred %>%
+  ggplot(aes(x = date)) +
+  geom_line(aes(y = dengue_true, color = 'True dengue cases')) +
+  # geom_line(aes(y = predicted_vals, color = 'Predicted dengue cases \n(static linear regression)')) +
+  # geom_line(aes(y = sliding_preds, color = 'Predicted dengue cases \n(sliding linear regression)')) + 
+  geom_line(aes(y = sliding_preds_covars_ar, 
+                color = 'Predicted dengue cases \n(dynamic model \nwith autoregression)')) +
+  xlab('') +
+  ylab('Dengue cases') +
+  scale_color_fira(name = '') +
+  scale_x_date(date_labels = '%d %b %Y', expand = c(0, 0)) +
+  theme_fira() +
+  theme(legend.position = 'bottom')
+```
+
+```{r, echo = FALSE}
+tibble(Model = c('Static linear model', 
+                 'Dynamic model (dengue searches only)', 
+                 'Dynamic model (multiple terms)', 
+                 'Dynamic model with autoregression'), 
+       RMSE = c(Metrics::rmse(actual, data_e1_pred$predicted_vals),
+                Metrics::rmse(actual, data_e1_pred$sliding_preds),
+                Metrics::rmse(actual, data_e1_pred$sliding_preds_covars), 
+                Metrics::rmse(actual, data_e1_pred$sliding_preds_covars_ar))) %>%
+  kbl() %>%
+  kable_styling()
+```
+
+We see that each additional component to the model reduces the difference between the actual and predicted values (i.e., reducing RMSE).
